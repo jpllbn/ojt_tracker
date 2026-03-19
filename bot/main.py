@@ -14,6 +14,7 @@ from bot.db import init_db, PHT
 from bot.handlers.start import registration_handler
 from bot.handlers.hours import timein_command, timeout_command, status_command
 from bot.handlers.coordinator import report_command, missing_command, hours_command
+from bot.handlers.leave import leave_command
 from bot.handlers.common import unknown_command
 from bot.reminders import remind_timein, remind_timeout
 
@@ -41,6 +42,7 @@ def main() -> None:
     app.add_handler(CommandHandler("timein", timein_command))
     app.add_handler(CommandHandler("timeout", timeout_command))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("leave", leave_command))
     app.add_handler(CommandHandler("report", report_command))
     app.add_handler(CommandHandler("missing", missing_command))
     app.add_handler(CommandHandler("hours", hours_command))

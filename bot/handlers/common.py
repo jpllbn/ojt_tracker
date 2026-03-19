@@ -48,6 +48,7 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "/timein  \u2014 Log your time in\n"
         "/timeout \u2014 Log your time out\n"
         "/status  \u2014 Check your hours\n"
+        "/leave   \u2014 File a leave for today\n"
         "/cancel  \u2014 Cancel current operation"
     )
 

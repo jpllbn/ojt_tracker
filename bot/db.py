@@ -25,8 +25,33 @@ CREATE TABLE IF NOT EXISTS time_logs (
     created_at      TEXT    NOT NULL
 );
 
+-- Deduplicate time_logs before adding the unique index.  Keeps the row
+-- with the most complete data (non-null time_out wins, then highest id).
+DELETE FROM time_logs
+WHERE id NOT IN (
+    SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY telegram_id, date
+                   ORDER BY time_out IS NOT NULL DESC, id DESC
+               ) AS rn
+        FROM time_logs
+    ) WHERE rn = 1
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_time_logs_student_date
     ON time_logs(telegram_id, date);
+
+CREATE TABLE IF NOT EXISTS leaves (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id     INTEGER NOT NULL REFERENCES students(telegram_id),
+    date            TEXT    NOT NULL,
+    reason          TEXT    NOT NULL,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leaves_student_date
+    ON leaves(telegram_id, date);
 """
 
 
@@ -156,15 +181,17 @@ async def get_todays_completed_logs() -> list[dict]:
 
 
 async def get_students_missing_today() -> list[dict]:
-    """Return registered students with no time_log row for today."""
+    """Return registered students with no time_log and no leave for today."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT full_name, section FROM students "
             "WHERE telegram_id NOT IN ("
             "  SELECT telegram_id FROM time_logs WHERE date = ?"
+            ") AND telegram_id NOT IN ("
+            "  SELECT telegram_id FROM leaves WHERE date = ?"
             ") ORDER BY section, full_name",
-            (_today(),),
+            (_today(), _today()),
         )
         return [dict(r) for r in await cursor.fetchall()]
 
@@ -174,7 +201,7 @@ async def find_student_by_name(name: str) -> dict | None:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT * FROM students WHERE full_name LIKE ? LIMIT 1",
+            "SELECT * FROM students WHERE LOWER(full_name) LIKE LOWER(?) LIMIT 1",
             (f"%{name}%",),
         )
         row = await cursor.fetchone()
@@ -205,13 +232,58 @@ async def get_open_sessions_today() -> list[int]:
 
 
 async def get_students_without_timein_today() -> list[int]:
-    """Return telegram_ids of students who have not timed in today."""
+    """Return telegram_ids of students who have not timed in and have no leave today."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         cursor = await db.execute(
             "SELECT telegram_id FROM students "
             "WHERE telegram_id NOT IN ("
             "  SELECT telegram_id FROM time_logs WHERE date = ?"
+            ") AND telegram_id NOT IN ("
+            "  SELECT telegram_id FROM leaves WHERE date = ?"
             ")",
-            (_today(),),
+            (_today(), _today()),
         )
         return [row[0] for row in await cursor.fetchall()]
+
+
+async def get_today_leave(telegram_id: int) -> dict | None:
+    """Return today's leave row for the student, or None."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM leaves WHERE telegram_id = ? AND date = ?",
+            (telegram_id, _today()),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def create_leave(telegram_id: int, reason: str) -> bool:
+    """Insert a leave row for today.
+
+    Uses INSERT OR IGNORE so a concurrent duplicate is rejected by the
+    UNIQUE index on (telegram_id, date).
+
+    Returns True if the leave was recorded, False if one already existed.
+    """
+    now = _now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO leaves (telegram_id, date, reason, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (telegram_id, _today(), reason, now),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_student_leaves(telegram_id: int) -> list[dict]:
+    """Return all leave rows for a student, newest first."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT date, reason FROM leaves "
+            "WHERE telegram_id = ? ORDER BY date DESC",
+            (telegram_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]

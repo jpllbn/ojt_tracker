@@ -65,6 +65,7 @@ async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     logs = await db.get_student_logs(student["telegram_id"])
+    leaves = await db.get_student_leaves(student["telegram_id"])
     total = await db.get_total_hours(student["telegram_id"])
 
     header = (
@@ -73,16 +74,22 @@ async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Rendered: {total} hrs\n"
     )
 
-    if not logs:
+    if not logs and not leaves:
         await update.message.reply_text(header + "\nNo sessions recorded yet.")
         return
 
+    leave_map = {lv["date"]: lv["reason"] for lv in leaves}
+
     lines = [header, "Date       | In       | Out      | Hours"]
     for log in logs:
-        hrs = log["hours"] if log["hours"] is not None else "—"
+        hrs = log["hours"] if log["hours"] is not None else "\u2014"
         lines.append(
             f"{log['date']} | {_fmt_time(log['time_in'])} | "
             f"{_fmt_time(log['time_out'])} | {hrs}"
         )
+
+    for date, reason in sorted(leave_map.items(), reverse=True):
+        if date not in {log["date"] for log in logs}:
+            lines.append(f"{date} | LEAVE: {reason}")
 
     await update.message.reply_text("\n".join(lines))
