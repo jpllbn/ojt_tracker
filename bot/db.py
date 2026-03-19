@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS leaves (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_leaves_student_date
     ON leaves(telegram_id, date);
+
+CREATE TABLE IF NOT EXISTS corrections (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_id          INTEGER NOT NULL REFERENCES time_logs(id),
+    old_hours       REAL,
+    new_hours       REAL    NOT NULL,
+    corrected_by    INTEGER NOT NULL,
+    corrected_at    TEXT    NOT NULL
+);
 """
 
 
@@ -229,11 +238,58 @@ async def get_student_logs(telegram_id: int) -> list[dict]:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT date, time_in, time_out, hours FROM time_logs "
+            "SELECT id, date, time_in, time_out, hours FROM time_logs "
             "WHERE telegram_id = ? ORDER BY date DESC",
             (telegram_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_log_by_student_and_date(
+    telegram_id: int, date: str,
+) -> dict | None:
+    """Return the time_log row for a student on a specific date, or None."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM time_logs WHERE telegram_id = ? AND date = ?",
+            (telegram_id, date),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def correct_hours(
+    log_id: int,
+    old_hours: float | None,
+    new_hours: float,
+    corrected_by: int,
+) -> None:
+    """Overwrite hours on a time_log row and record the change in corrections."""
+    now = _now()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "UPDATE time_logs SET hours = ? WHERE id = ?",
+            (new_hours, log_id),
+        )
+        await db.execute(
+            "INSERT INTO corrections (log_id, old_hours, new_hours, corrected_by, corrected_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (log_id, old_hours, new_hours, corrected_by, now),
+        )
+        await db.commit()
+
+
+async def get_corrections_for_student(telegram_id: int) -> dict[int, bool]:
+    """Return a set-like dict mapping log_id -> True for corrected time_logs."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "SELECT DISTINCT c.log_id FROM corrections c "
+            "JOIN time_logs t ON c.log_id = t.id "
+            "WHERE t.telegram_id = ?",
+            (telegram_id,),
+        )
+        return {row[0]: True for row in await cursor.fetchall()}
 
 
 async def get_open_sessions_today() -> list[int]:

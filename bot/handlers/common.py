@@ -55,9 +55,10 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if update.effective_user.id == COORDINATOR_CHAT_ID:
         text += (
             "\n\nCoordinator commands:\n"
-            "/report          \u2014 Who logged today\n"
-            "/missing         \u2014 Who hasn't logged today\n"
-            "/hours <name>    \u2014 Student's full log"
+            "/report                       \u2014 Who logged today\n"
+            "/missing                      \u2014 Who hasn't logged today\n"
+            "/hours <name>                 \u2014 Student's full log\n"
+            "/correct <name> <date> <hrs>  \u2014 Fix logged hours"
         )
 
     await update.message.reply_text(text)
