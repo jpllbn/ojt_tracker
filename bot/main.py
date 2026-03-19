@@ -1,10 +1,12 @@
 import logging
 
-from telegram.ext import Application, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from bot.config import BOT_TOKEN
 from bot.db import init_db
 from bot.handlers.start import registration_handler
+from bot.handlers.hours import timein_command, timeout_command, status_command
+from bot.handlers.coordinator import report_command, missing_command, hours_command
 from bot.handlers.common import unknown_command
 
 logging.basicConfig(
@@ -28,6 +30,12 @@ def main() -> None:
     )
 
     app.add_handler(registration_handler)
+    app.add_handler(CommandHandler("timein", timein_command))
+    app.add_handler(CommandHandler("timeout", timeout_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("report", report_command))
+    app.add_handler(CommandHandler("missing", missing_command))
+    app.add_handler(CommandHandler("hours", hours_command))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
     logger.info("Starting OJT Tracker bot …")

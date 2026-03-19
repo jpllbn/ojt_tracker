@@ -39,12 +39,24 @@ def coordinator_only(func):
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
+    from bot.config import COORDINATOR_CHAT_ID
+
+    text = (
         "I don't recognize that command.\n\n"
         "Available commands:\n"
-        "/start  \u2014 Register your account\n"
-        "/timein \u2014 Log your time in\n"
+        "/start   \u2014 Register your account\n"
+        "/timein  \u2014 Log your time in\n"
         "/timeout \u2014 Log your time out\n"
-        "/status \u2014 Check your hours\n"
-        "/cancel \u2014 Cancel current operation"
+        "/status  \u2014 Check your hours\n"
+        "/cancel  \u2014 Cancel current operation"
     )
+
+    if update.effective_user.id == COORDINATOR_CHAT_ID:
+        text += (
+            "\n\nCoordinator commands:\n"
+            "/report          \u2014 Who logged today\n"
+            "/missing         \u2014 Who hasn't logged today\n"
+            "/hours <name>    \u2014 Student's full log"
+        )
+
+    await update.message.reply_text(text)
