@@ -25,8 +25,24 @@ async def timein_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    time_in_iso = await db.create_time_in(telegram_id)
-    if time_in_iso is None:
+    leave = await db.get_today_leave(telegram_id)
+    if leave:
+        await update.message.reply_text(
+            "You filed a leave for today. Cancel it with the coordinator "
+            "before timing in."
+        )
+        return
+
+    status, time_in_iso = await db.create_time_in(telegram_id)
+
+    if status == "has_leave":
+        await update.message.reply_text(
+            "You filed a leave for today. Cancel it with the coordinator "
+            "before timing in."
+        )
+        return
+
+    if status == "duplicate":
         await update.message.reply_text(
             "Your time-in was already recorded. Send /timeout when your shift ends."
         )

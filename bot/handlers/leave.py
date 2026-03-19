@@ -33,9 +33,16 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     reason = " ".join(context.args)
-    created = await db.create_leave(telegram_id, reason)
+    result = await db.create_leave(telegram_id, reason)
 
-    if not created:
+    if result == "has_timelog":
+        await update.message.reply_text(
+            "You already have a time-in entry for today.\n"
+            "Use /timeout to end your shift instead."
+        )
+        return
+
+    if result == "duplicate":
         await update.message.reply_text(
             "Your leave was already recorded for today."
         )

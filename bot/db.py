@@ -107,25 +107,41 @@ async def get_today_log(telegram_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-async def create_time_in(telegram_id: int) -> str | None:
+async def create_time_in(telegram_id: int) -> tuple[str, str]:
     """Insert a new time_log row with the current PHT timestamp as time_in.
 
-    Uses INSERT OR IGNORE so a concurrent duplicate is silently rejected
-    by the UNIQUE index on (telegram_id, date).
+    Runs inside a BEGIN IMMEDIATE transaction so the leave check and the
+    INSERT are atomic — no other connection can write between them.
 
-    Returns the recorded time_in value, or None if a row already existed.
+    Returns ``("ok", time_in_iso)`` on success, ``("has_leave", "")`` if
+    a leave exists for today, or ``("duplicate", "")`` if a time-log row
+    already exists.
     """
     now = _now()
+    today = _today()
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute(
-            "INSERT OR IGNORE INTO time_logs (telegram_id, date, time_in, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (telegram_id, _today(), now, now),
-        )
-        await db.commit()
-        if cursor.rowcount == 0:
-            return None
-    return now
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await db.execute(
+                "SELECT 1 FROM leaves WHERE telegram_id = ? AND date = ?",
+                (telegram_id, today),
+            )
+            if await cursor.fetchone():
+                await db.execute("ROLLBACK")
+                return ("has_leave", "")
+
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO time_logs (telegram_id, date, time_in, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (telegram_id, today, now, now),
+            )
+            await db.execute("COMMIT")
+            if cursor.rowcount == 0:
+                return ("duplicate", "")
+        except BaseException:
+            await db.execute("ROLLBACK")
+            raise
+    return ("ok", now)
 
 
 async def update_time_out(log_id: int, time_in_iso: str) -> tuple[str, float] | None:
@@ -258,23 +274,40 @@ async def get_today_leave(telegram_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-async def create_leave(telegram_id: int, reason: str) -> bool:
+async def create_leave(telegram_id: int, reason: str) -> str:
     """Insert a leave row for today.
 
-    Uses INSERT OR IGNORE so a concurrent duplicate is rejected by the
-    UNIQUE index on (telegram_id, date).
+    Runs inside a BEGIN IMMEDIATE transaction so the time-log check and
+    the INSERT are atomic — no other connection can write between them.
 
-    Returns True if the leave was recorded, False if one already existed.
+    Returns ``"ok"`` on success, ``"has_timelog"`` if a time-log already
+    exists for today, or ``"duplicate"`` if a leave was already filed.
     """
     now = _now()
+    today = _today()
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute(
-            "INSERT OR IGNORE INTO leaves (telegram_id, date, reason, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (telegram_id, _today(), reason, now),
-        )
-        await db.commit()
-        return cursor.rowcount > 0
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await db.execute(
+                "SELECT 1 FROM time_logs WHERE telegram_id = ? AND date = ?",
+                (telegram_id, today),
+            )
+            if await cursor.fetchone():
+                await db.execute("ROLLBACK")
+                return "has_timelog"
+
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO leaves (telegram_id, date, reason, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (telegram_id, today, reason, now),
+            )
+            await db.execute("COMMIT")
+            if cursor.rowcount == 0:
+                return "duplicate"
+        except BaseException:
+            await db.execute("ROLLBACK")
+            raise
+        return "ok"
 
 
 async def get_student_leaves(telegram_id: int) -> list[dict]:
