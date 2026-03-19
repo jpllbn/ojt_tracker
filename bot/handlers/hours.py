@@ -26,6 +26,12 @@ async def timein_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     time_in_iso = await db.create_time_in(telegram_id)
+    if time_in_iso is None:
+        await update.message.reply_text(
+            "Your time-in was already recorded. Send /timeout when your shift ends."
+        )
+        return
+
     await update.message.reply_text(
         f"Time-in recorded at {_fmt_time(time_in_iso)}.\n"
         "Send /timeout when your shift ends."
